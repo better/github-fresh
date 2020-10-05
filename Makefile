@@ -34,8 +34,11 @@ clean:
 .PHONY: build
 build: clean build-darwin build-linux
 
-build-%:
-	GOOS=$* GOARCH=386 go build -ldflags '${LDFLAGS}' -o ${PREFIX}${NAME}-$*
+build-linux:
+	GOOS=linux GOARCH=386 go build -ldflags '${LDFLAGS}' -o ${PREFIX}${NAME}-linux
+
+build-darwin:
+	GOOS=darwin GOARCH=amd64 go build -ldflags '${LDFLAGS}' -o ${PREFIX}${NAME}-darwin
 
 .PHONY: docker
 docker:

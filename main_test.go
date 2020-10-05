@@ -208,6 +208,28 @@ func TestRun(t *testing.T) {
 						"ref": "stalebranch",
 						"sha": "1761e021e70d29619ca270046b23bd243f652b98"
 					}
+				},
+				{
+					"number": 2,
+					"updated_at": "` + now.Format(time.RFC3339) + `",
+					"head": {
+						"ref": "notstalebranch",
+						"sha": "867530990210abcdefg867530990210abcdefg"
+					}
+				}
+				]`,
+		},
+		mockHTTPResponse{
+			method: "GET",
+			URL:    "/repos/user/repo/pulls?state=open&sort=updated&direction=desc&per_page=100&page=1",
+			body: `[
+				{
+					"number": 2,
+					"updated_at": "` + now.Format(time.RFC3339) + `",
+					"head": {
+						"ref": "notstalebranch",
+						"sha": "867530990210abcdefg867530990210abcdefg"
+					}
 				}
 				]`,
 		},
