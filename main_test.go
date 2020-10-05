@@ -214,7 +214,7 @@ func TestRun(t *testing.T) {
 					"updated_at": "` + now.Format(time.RFC3339) + `",
 					"head": {
 						"ref": "notstalebranch",
-						"sha": "867530990210abcdefg867530990210abcdefg"
+						"sha": "8675309902100abcdefg8675309902100abcdefg"
 					}
 				}
 				]`,
@@ -228,7 +228,7 @@ func TestRun(t *testing.T) {
 					"updated_at": "` + now.Format(time.RFC3339) + `",
 					"head": {
 						"ref": "notstalebranch",
-						"sha": "867530990210abcdefg867530990210abcdefg"
+						"sha": "8675309902100abcdefg8675309902100abcdefg"
 					}
 				}
 				]`,
