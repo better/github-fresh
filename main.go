@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -65,7 +66,7 @@ func NewExecutor(token string, dry bool) *Executor {
 	return &ex
 }
 
-func (ex *Executor) makeRequest(method string, url string) (res *http.Response, err error) {
+func (ex *Executor) makeRequest(method string, url string, retries int) (res *http.Response, err error) {
 	protocol := "https"
 	if ex.http {
 		protocol = "http"
@@ -76,12 +77,25 @@ func (ex *Executor) makeRequest(method string, url string) (res *http.Response, 
 		return nil, err
 	}
 
+	req.Header.Add("accept", "application/vnd.github.v3+json")
 	req.Header.Add("Authorization", "token "+ex.token)
-	res, _ = ex.client.Do(req)
-	if res.StatusCode >= 400 {
-		return res, errors.New(res.Status)
+
+	for attempt, retry := 1, true; retry; attempt++ {
+
+		res, _ = ex.client.Do(req)
+		if res.StatusCode >= 400 {
+			log.Println("Request failed (" + res.Status + ") - retrying...")
+
+			if attempt > retries {
+				return res, errors.New(res.Status)
+			}
+		} else {
+			retry = false
+		}
 	}
+
 	return res, nil
+
 }
 
 func (ex *Executor) listClosedPullRequests(user string, repo string, days int) ([]pullRequest, error) {
@@ -90,8 +104,8 @@ func (ex *Executor) listClosedPullRequests(user string, repo string, days int) (
 	maxAgeHours := float64(days*24) + 0.01
 
 	for page, keepGoing := 1, true; keepGoing; page++ {
-		res, err := ex.makeRequest("GET", "repos/"+user+"/"+repo+"/pulls?state=closed&sort=updated&direction=desc&per_page=100&page="+strconv.Itoa(page))
 
+		res, err := ex.makeRequest("GET", "repos/"+user+"/"+repo+"/pulls?state=closed&sort=updated&direction=desc&per_page=100&page="+strconv.Itoa(page), 5)
 		if err != nil {
 			return pullRequests, errors.New("failed to get closed pull requests (" + err.Error() + ")")
 		}
@@ -127,7 +141,7 @@ func (ex *Executor) listOpenPullRequests(user string, repo string) ([]pullReques
 	pullRequests := make([]pullRequest, 0, 1)
 
 	for page, keepGoing := 1, true; keepGoing; page++ {
-		res, err := ex.makeRequest("GET", "repos/"+user+"/"+repo+"/pulls?state=open&sort=updated&direction=desc&per_page=100&page="+strconv.Itoa(page))
+		res, err := ex.makeRequest("GET", "repos/"+user+"/"+repo+"/pulls?state=open&sort=updated&direction=desc&per_page=100&page="+strconv.Itoa(page), 5)
 
 		if err != nil {
 			return pullRequests, errors.New("failed to get open pull requests (" + err.Error() + ")")
@@ -157,7 +171,7 @@ func (ex *Executor) listUnprotectedBranches(user string, repo string) ([]branch,
 	branches := make([]branch, 0, 1)
 
 	for page := 1; ; page++ {
-		res, err := ex.makeRequest("GET", "repos/"+user+"/"+repo+"/branches?protected=false&per_page=100&page="+strconv.Itoa(page))
+		res, err := ex.makeRequest("GET", "repos/"+user+"/"+repo+"/branches?protected=false&per_page=100&page="+strconv.Itoa(page), 5)
 
 		if err != nil {
 			return branches, errors.New("failed to get branches (" + err.Error() + ")")
@@ -192,8 +206,7 @@ func (ex *Executor) deleteBranches(user string, repo string, branches []string) 
 			continue
 		}
 
-		_, err := ex.makeRequest("DELETE", "repos/"+user+"/"+repo+"/git/refs/heads/"+branch)
-
+		_, err := ex.makeRequest("DELETE", "repos/"+user+"/"+repo+"/git/refs/heads/"+url.QueryEscape(branch), 5)
 		if err != nil {
 			return deletedBranches, errors.New("failed to delete branch " + branch + " (" + err.Error() + ")")
 		}
@@ -311,27 +324,37 @@ func Run(user string, repo string, days int, ex Executor) error {
 
 	var err error
 
+	log.Println("Getting closed PRs...")
 	closedPullRequests, err := ex.listClosedPullRequests(user, repo, days)
 	if err != nil {
 		return err
 	}
+	log.Println("Collected " + strconv.Itoa(len(closedPullRequests)) + " closed PRs")
 
+	log.Println("Getting open PRs...")
 	openPullRequests, err := ex.listOpenPullRequests(user, repo)
 	if err != nil {
 		return err
 	}
+	log.Println("Collected " + strconv.Itoa(len(openPullRequests)) + " open PRs")
 
+	log.Println("Getting unprotected branches...")
 	unprotectedBranches, err := ex.listUnprotectedBranches(user, repo)
 	if err != nil {
 		return err
 	}
+	log.Println("Found " + strconv.Itoa(len(unprotectedBranches)) + " unprotected branches")
 
+	log.Println("Finding stale branches to delete")
 	staleBranches := getStaleBranches(unprotectedBranches, closedPullRequests, openPullRequests)
+
+	log.Println("Deleting branches...")
 	db, err := ex.deleteBranches(user, repo, staleBranches)
 	if err != nil {
 		return err
 	}
 	log.Println("Deleted " + strconv.Itoa(db) + " branches")
+
 	return nil
 }
 
