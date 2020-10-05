@@ -75,7 +75,7 @@ func (ex *Executor) makeRequest(method string, url string) (res *http.Response, 
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Add("Accept", "application/vnd.github.v3+json")
+
 	req.Header.Add("Authorization", "token "+ex.token)
 	res, _ = ex.client.Do(req)
 	if res.StatusCode >= 400 {
@@ -93,7 +93,7 @@ func (ex *Executor) listClosedPullRequests(user string, repo string, days int) (
 		res, err := ex.makeRequest("GET", "repos/"+user+"/"+repo+"/pulls?state=closed&sort=updated&direction=desc&per_page=100&page="+strconv.Itoa(page))
 
 		if err != nil {
-			return pullRequests, errors.New("failed to get pull requests (" + err.Error() + ")")
+			return pullRequests, errors.New("failed to get closed pull requests (" + err.Error() + ")")
 		}
 
 		d := json.NewDecoder(res.Body)
@@ -103,7 +103,7 @@ func (ex *Executor) listClosedPullRequests(user string, repo string, days int) (
 		err = d.Decode(&prs.PullRequests)
 
 		if err != nil {
-			return pullRequests, errors.New("failed to parse pull requests (" + err.Error() + ")")
+			return pullRequests, errors.New("failed to parse closed pull requests (" + err.Error() + ")")
 		}
 
 		for _, pr := range prs.PullRequests {
@@ -130,7 +130,7 @@ func (ex *Executor) listOpenPullRequests(user string, repo string) ([]pullReques
 		res, err := ex.makeRequest("GET", "repos/"+user+"/"+repo+"/pulls?state=open&sort=updated&direction=desc&per_page=100&page="+strconv.Itoa(page))
 
 		if err != nil {
-			return pullRequests, errors.New("failed to get pull requests (" + err.Error() + ")")
+			return pullRequests, errors.New("failed to get open pull requests (" + err.Error() + ")")
 		}
 
 		d := json.NewDecoder(res.Body)
@@ -140,7 +140,7 @@ func (ex *Executor) listOpenPullRequests(user string, repo string) ([]pullReques
 		err = d.Decode(&prs.PullRequests)
 
 		if err != nil {
-			return pullRequests, errors.New("failed to parse pull requests (" + err.Error() + ")")
+			return pullRequests, errors.New("failed to parse open pull requests (" + err.Error() + ")")
 		}
 
 		pullRequests = append(pullRequests, prs.PullRequests...)
