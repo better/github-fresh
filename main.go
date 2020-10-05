@@ -75,6 +75,7 @@ func (ex *Executor) makeRequest(method string, url string) (res *http.Response, 
 	if err != nil {
 		return nil, err
 	}
+	req.Header.Add("Accept", "application/vnd.github.v3+json")
 	req.Header.Add("Authorization", "token "+ex.token)
 	res, _ = ex.client.Do(req)
 	if res.StatusCode >= 400 {
@@ -113,6 +114,36 @@ func (ex *Executor) listClosedPullRequests(user string, repo string, days int) (
 			}
 			pullRequests = append(pullRequests, pr)
 		}
+
+		if len(prs.PullRequests) == 0 || len(prs.PullRequests) < 100 {
+			break
+		}
+	}
+
+	return pullRequests, nil
+}
+
+func (ex *Executor) listOpenPullRequests(user string, repo string) ([]pullRequest, error) {
+	pullRequests := make([]pullRequest, 0, 1)
+
+	for page, keepGoing := 1, true; keepGoing; page++ {
+		res, err := ex.makeRequest("GET", "repos/"+user+"/"+repo+"/pulls?state=open&sort=updated&direction=desc&per_page=100&page="+strconv.Itoa(page))
+
+		if err != nil {
+			return pullRequests, errors.New("failed to get pull requests (" + err.Error() + ")")
+		}
+
+		d := json.NewDecoder(res.Body)
+		var prs struct {
+			PullRequests []pullRequest
+		}
+		err = d.Decode(&prs.PullRequests)
+
+		if err != nil {
+			return pullRequests, errors.New("failed to parse pull requests (" + err.Error() + ")")
+		}
+
+		pullRequests = append(pullRequests, prs.PullRequests...)
 
 		if len(prs.PullRequests) == 0 || len(prs.PullRequests) < 100 {
 			break
@@ -174,18 +205,33 @@ func (ex *Executor) deleteBranches(user string, repo string, branches []string) 
 	return deletedBranches, nil
 }
 
-func getStaleBranches(branches []branch, pullRequests []pullRequest) []string {
-	branchesByName := make(map[string]branch)
-	staleBranches := make([]string, 0, 1)
+func getStaleBranches(closedBranches []branch, closedPullRequests []pullRequest, openPullRequests []pullRequest) []string {
+	branchShaMap := make(map[string]string) // Map[branch_name]branch_SHA
+	staleBranchMap := make(map[string]bool) // Map[branch_name]is_stale
 
-	for _, b := range branches {
-		branchesByName[b.Name] = b
+	for _, b := range closedBranches {
+		branchShaMap[b.Name] = b.Commit.SHA
 	}
 
-	for _, pr := range pullRequests {
-		staleBranch, branchExists := branchesByName[pr.Head.Ref]
-		if branchExists && staleBranch.Commit.SHA == pr.Head.SHA {
-			staleBranches = append(staleBranches, pr.Head.Ref)
+	for _, pr := range closedPullRequests {
+		staleBranchSHA, branchExists := branchShaMap[pr.Head.Ref]
+		if branchExists && staleBranchSHA == pr.Head.SHA {
+			staleBranchMap[pr.Head.Ref] = true
+		}
+	}
+
+	// If we've marked this branch as stale, but there is another open PR tied to the branch, unmark as stale
+	for _, pr := range openPullRequests {
+		_, branchExists := staleBranchMap[pr.Head.Ref]
+		if branchExists {
+			staleBranchMap[pr.Head.Ref] = false
+		}
+	}
+
+	staleBranches := make([]string, 0, 1)
+	for branch, isStale := range staleBranchMap {
+		if isStale {
+			staleBranches = append(staleBranches, branch)
 		}
 	}
 
@@ -269,11 +315,18 @@ func Run(user string, repo string, days int, ex Executor) error {
 	if err != nil {
 		return err
 	}
+
+	openPullRequests, err := ex.listOpenPullRequests(user, repo)
+	if err != nil {
+		return err
+	}
+
 	unprotectedBranches, err := ex.listUnprotectedBranches(user, repo)
 	if err != nil {
 		return err
 	}
-	staleBranches := getStaleBranches(unprotectedBranches, closedPullRequests)
+
+	staleBranches := getStaleBranches(unprotectedBranches, closedPullRequests, openPullRequests)
 	db, err := ex.deleteBranches(user, repo, staleBranches)
 	if err != nil {
 		return err
